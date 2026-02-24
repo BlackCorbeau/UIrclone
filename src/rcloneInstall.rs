@@ -52,4 +52,23 @@ impl RcloneApp {
         println!("rclone успешно установлен!");
         Ok(())
     }
+
+    pub fn run_command(&self, args: &[&str]) -> Result<String, String> {
+        println!(
+            "Запускаю: {} {}",
+            self.rclone_path.display(),
+            args.join(" ")
+        );
+
+        let output = Command::new(&self.rclone_path)
+            .args(args)
+            .output()
+            .map_err(|e| format!("Ошибка запуска: {}", e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
 }
