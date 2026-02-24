@@ -25,4 +25,31 @@ impl RcloneApp {
 
         Ok(Self { rclone_path })
     }
+
+    fn extract_rclone(dest_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Устанавливаю rclone в {:?}", dest_path);
+
+        let rclone_bytes = if cfg!(windows) {
+            include_bytes!("../bin/rclone.exe")
+        } else if cfg!(target_os = "linux") {
+            include_bytes!("../bin/rclone")
+        } else if cfg!(target_os = "macos") {
+            include_bytes!("../bin/rclone")
+        } else {
+            panic!("Неподдерживаемая ОС");
+        };
+
+        fs::write(dest_path, rclone_bytes)?;
+
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(dest_path)?.permissions();
+            perms.set_mode(0o755); // rwxr-xr-x
+            fs::set_permissions(dest_path, perms)?;
+        }
+
+        println!("rclone успешно установлен!");
+        Ok(())
+    }
 }
