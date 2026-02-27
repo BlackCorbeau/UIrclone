@@ -1,13 +1,11 @@
 mod rcloneInstall;
 
-use rcloneInstall::RcloneApp;
+//use rcloneInstall::RcloneApp;
 
-fn main() {
-    let _app = match RcloneApp::new() {
-        Ok(app) => app,
-        Err(e) => {
-            eprintln!("Ошибка инициализации: {}", e);
-            panic!("{}", e);
-        }
-    };
+use tokio::runtime::Runtime;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let rt = Runtime::new()?;
+    rt.block_on(rcloneInstall::install_latest_rclone())?;
+    Ok(())
 }
