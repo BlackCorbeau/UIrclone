@@ -24,3 +24,47 @@ pub struct FileInfo {
 
 pub mod files;
 
+/// === Модуль для операций синхронизации ===
+
+#[derive(Debug, Clone)]
+pub struct SyncStats {
+    pub transferred: u64,
+    pub files: u64,
+    pub errors: u64,
+    pub checks: u64,
+    pub elapsed_time: f64,
+    pub transfer_speed: f64, // в байтах в секунду
+}
+
+#[derive(Debug, Default)]
+pub struct CopyOptions {
+    pub verbose: bool,
+    pub dry_run: bool,
+    pub bandwidth_limit: Option<String>,
+    pub no_traverse: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct SyncOptions {
+    pub verbose: bool,
+    pub dry_run: bool,
+    pub delete_excluded: bool,
+    pub bandwidth_limit: Option<String>,
+    pub existing_only: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct MoveOptions {
+    pub verbose: bool,
+    pub dry_run: bool,
+    pub delete_empty_src_dirs: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct DeleteOptions {
+    pub verbose: bool,
+    pub dry_run: bool,
+    pub recursive: bool,
+}
+
+pub mod sync;
