@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 mod rcloneInstall;
 
 use tokio::runtime::Runtime;
@@ -11,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok::<_, Box<dyn std::error::Error>>(rclone)
     })?;
 
-    let v = rclone.version();
-    println!("Rclone: {:?}", v);
+    let v = rclone.version().unwrap().to_string();
+    println!("Rclone: {}", v);
     Ok::<_, Box<dyn std::error::Error>>(())
 }
