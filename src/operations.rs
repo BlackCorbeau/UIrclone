@@ -55,6 +55,21 @@ pub struct SyncStats {
     pub transfer_speed: f64, // в байтах в секунду
 }
 
+impl SyncStats {
+    pub fn format_speed(&self) -> String {
+        let speed = self.transfer_speed;
+        if speed < 1024.0 {
+            format!("{:.0} B/s", speed)
+        } else if speed < 1024.0 * 1024.0 {
+            format!("{:.1} KB/s", speed / 1024.0)
+        } else if speed < 1024.0 * 1024.0 * 1024.0 {
+            format!("{:.1} MB/s", speed / (1024.0 * 1024.0))
+        } else {
+            format!("{:.2} GB/s", speed / (1024.0 * 1024.0 * 1024.0))
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CopyOptions {
     pub verbose: bool,
