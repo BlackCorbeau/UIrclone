@@ -7,10 +7,7 @@ use std::process::Command;
 use tar::Archive;
 use tokio;
 
-pub struct RcloneApp {
-    rclone_path: PathBuf,
-    using_system_rclone: bool,
-}
+use super::RcloneApp;
 
 impl RcloneApp {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
