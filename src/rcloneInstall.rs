@@ -47,7 +47,33 @@ impl RcloneApp {
         Self::install_latest_rclone().await
     }
 
-    fn check_system_rclone() -> Option<PathBuf> {
+    // Публичный конструктор для тестов и создания экземпляра с заданными параметрами
+    pub fn new_with_path(rclone_path: PathBuf, using_system_rclone: bool) -> Self {
+        Self {
+            rclone_path,
+            using_system_rclone,
+        }
+    }
+
+    // Геттеры
+    pub fn get_rclone_path(&self) -> &PathBuf {
+        &self.rclone_path
+    }
+
+    pub fn is_using_system_rclone(&self) -> bool {
+        self.using_system_rclone
+    }
+
+    // Сеттеры
+    pub fn set_rclone_path(&mut self, path: PathBuf) {
+        self.rclone_path = path;
+    }
+
+    pub fn set_using_system_rclone(&mut self, value: bool) {
+        self.using_system_rclone = value;
+    }
+
+    pub fn check_system_rclone() -> Option<PathBuf> {
         if let Ok(path) = which::which("rclone") {
             return Some(path);
         }
