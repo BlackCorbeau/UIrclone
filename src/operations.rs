@@ -68,3 +68,12 @@ pub struct DeleteOptions {
 }
 
 pub mod sync;
+/// === Модуль для поиска ===
+
+#[derive(Debug, Default)]
+pub struct FindOptions {
+    pub recursive: bool,
+    pub max_results: usize,
+}
+
+pub mod search;
