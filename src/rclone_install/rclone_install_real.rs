@@ -206,7 +206,7 @@ impl RcloneApp {
         })
     }
 
-    fn run_command(&self, args: &[&str]) -> Result<String, String> {
+    pub fn run_command(&self, args: &[&str]) -> Result<String, String> {
         let output = Command::new(&self.rclone_path)
             .args(args)
             .output()
