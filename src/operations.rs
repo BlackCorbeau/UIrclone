@@ -112,3 +112,9 @@ pub struct FindOptions {
 }
 
 pub mod search;
+
+pub mod check;
+pub mod info;
+
+#[cfg(test)]
+mod operations_tests;
