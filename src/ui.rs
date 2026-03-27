@@ -1,3 +1,8 @@
+//! Графический интерфейс для операций rclone.
+//!
+//! Этот модуль содержит главную структуру `RcloneUI` и её реализацию,
+//! включая панели, диалоги, просмотр файлов и управление передачей данных.
+
 use eframe::egui;
 use egui::{CentralPanel, ScrollArea, Window, Align2, Color32, ProgressBar};
 use std::sync::Arc;
@@ -5,56 +10,102 @@ use tokio::runtime::Runtime;
 use crate::rclone_install::RcloneApp;
 use crate::operations::{self, FileInfo, Remote, CopyOptions, FindOptions};
 
+/// Состояние приложения.
 #[derive(Clone)]
 pub enum AppState {
+    /// Приложение инициализируется (проверка наличия rclone).
     Initializing,
+    /// Приложение готово и простаивает.
     Ready,
+    /// Произошла ошибка, хранится текст ошибки.
     Error(String),
+    /// Выполняется копирование.
     Copying,
+    /// Выполняется синхронизация.
     Syncing,
+    /// Выполняется перемещение.
     Moving,
+    /// Выполняется удаление.
     Deleting,
+    /// Загрузка файлов или информации о хранилищах.
     Loading,
 }
+
+/// Информация о ходе передачи.
 #[derive(Clone)]
 pub struct TransferProgress {
+    /// Передано байт.
     pub current: u64,
+    /// Всего байт.
     pub total: u64,
+    /// Текущая скорость (байт/с).
     pub speed: f64,
+    /// Имя текущего передаваемого файла.
     pub file_name: String,
 }
 
+/// Главная структура UI, содержащая всё состояние и логику.
 pub struct RcloneUI {
+    /// Экземпляр rclone (инициализируется при первом использовании).
     rclone: Option<Arc<RcloneApp>>,
+    /// Текущее состояние приложения.
     state: AppState,
+    /// Глобальное сообщение об ошибке.
     error_message: Option<String>,
     
+    // Навигация
+    /// Текущий отображаемый путь.
     current_path: String,
+    /// Список доступных удалённых хранилищ.
     remote_list: Vec<Remote>,
+    /// Файлы и папки в текущем пути.
     current_files: Vec<FileInfo>,
     
+    // Выделение
+    /// Выбранные пользователем пути.
     selected_paths: Vec<String>,
+    
+    // Передача
+    /// Исходный путь для операции передачи.
     transfer_source: String,
+    /// Целевой путь для операции передачи.
     transfer_dest: String,
+    /// Прогресс текущей передачи.
     transfer_progress: Option<TransferProgress>,
     
+    // Поиск
+    /// Текущий шаблон поиска.
     search_pattern: String,
+    /// Результаты последнего поиска.
     search_results: Vec<FileInfo>,
     
+    // Диалоги UI
+    /// Открыт ли диалог передачи.
     show_transfer_dialog: bool,
+    /// Открыт ли диалог создания нового хранилища.
     show_new_remote_dialog: bool,
+    /// Имя нового хранилища.
     new_remote_name: String,
+    /// Тип нового хранилища (например, "s3", "dropbox").
     new_remote_type: String,
+    /// Конфигурационные параметры нового хранилища.
     new_remote_config: std::collections::HashMap<String, String>,
     
+    // Настройки
+    /// Настройки пользователя.
     settings: AppSettings,
 }
 
+/// Настройки приложения, задаваемые пользователем.
 #[derive(Clone)]
 pub struct AppSettings {
+    /// Показывать скрытые файлы.
     pub show_hidden: bool,
+    /// Запрашивать подтверждение перед началом передачи.
     pub confirm_before_transfer: bool,
+    /// Максимальное количество одновременных передач.
     pub max_concurrent_transfers: u32,
+    /// Ограничение пропускной способности (например, "1M").
     pub bandwidth_limit: Option<String>,
 }
 
@@ -70,6 +121,9 @@ impl Default for AppSettings {
 }
 
 impl RcloneUI {
+    /// Создаёт новый экземпляр UI.
+    ///
+    /// Бэкенд rclone инициализируется позже, при первом вызове `update`.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             rclone: None,
@@ -93,6 +147,9 @@ impl RcloneUI {
         }
     }
     
+    /// Инициализирует бэкенд rclone.
+    ///
+    /// Пытается найти системную установку или скачивает последнюю версию.
     fn init_rclone(&mut self) {
         let rt = Runtime::new().unwrap();
         let rclone_result = rt.block_on(async {
@@ -112,6 +169,7 @@ impl RcloneUI {
         }
     }
     
+    /// Загружает список удалённых хранилищ и обновляет левую панель.
     fn load_remotes(&mut self) {
         if let Some(rclone) = &self.rclone {
             match operations::remotes::list(rclone) {
@@ -128,6 +186,10 @@ impl RcloneUI {
         }
     }
     
+    /// Загружает содержимое каталога.
+    ///
+    /// # Аргументы
+    /// * `path` – путь к удалённому хранилищу (например, "remote:" или "remote:папка/подпапка").
     fn load_files(&mut self, path: &str) {
         if let Some(rclone) = &self.rclone {
             match operations::files::list(rclone, path) {
@@ -144,6 +206,9 @@ impl RcloneUI {
         }
     }
     
+    /// Выполняет операцию копирования из источника в приёмник.
+    ///
+    /// Запускается в отдельном потоке, чтобы не блокировать UI.
     fn perform_copy(&mut self, source: &str, dest: &str) {
         if let Some(rclone) = &self.rclone {
             self.state = AppState::Copying;
@@ -155,6 +220,7 @@ impl RcloneUI {
                 no_traverse: false,
             };
             
+            // Копирование в отдельном потоке
             let rclone_clone = rclone.clone();
             let source_clone = source.to_string();
             let dest_clone = dest.to_string();
@@ -167,6 +233,7 @@ impl RcloneUI {
                 })
             });
             
+            // Для демонстрации имитируем завершение
             self.transfer_progress = Some(TransferProgress {
                 current: 100,
                 total: 100,
@@ -177,6 +244,7 @@ impl RcloneUI {
         }
     }
     
+    /// Ищет файлы по шаблону.
     fn search_files(&mut self, pattern: &str) {
         if let Some(rclone) = &self.rclone {
             let options = FindOptions {
@@ -195,6 +263,7 @@ impl RcloneUI {
         }
     }
     
+    /// Форматирует размер в байтах в удобочитаемый вид.
     fn format_size(bytes: u64) -> String {
         const KB: u64 = 1024;
         const MB: u64 = KB * 1024;
@@ -211,6 +280,7 @@ impl RcloneUI {
         }
     }
     
+    /// Форматирует скорость передачи (байт/с) в удобочитаемый вид.
     fn format_speed(speed: f64) -> String {
         if speed < 1024.0 {
             format!("{:.0} Б/с", speed)
@@ -225,11 +295,14 @@ impl RcloneUI {
 }
 
 impl eframe::App for RcloneUI {
+    /// Вызывается каждый кадр для обновления интерфейса.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Инициализация rclone, если ещё не выполнена
         if matches!(self.state, AppState::Initializing) && self.rclone.is_none() {
             self.init_rclone();
         }
         
+        // Верхняя панель меню
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Файл", |ui| {
@@ -292,6 +365,7 @@ impl eframe::App for RcloneUI {
             });
         });
         
+        // Левая панель — список хранилищ
         egui::SidePanel::left("remotes_panel")
             .default_width(200.0)
             .show(ctx, |ui| {
@@ -319,6 +393,7 @@ impl eframe::App for RcloneUI {
                 });
             });
         
+        // Центральная панель — основное содержимое
         CentralPanel::default().show(ctx, |ui| {
             // Верхняя панель с путём и поиском
             ui.horizontal(|ui| {
@@ -353,6 +428,7 @@ impl eframe::App for RcloneUI {
             
             ui.separator();
             
+            // Состояние загрузки
             if matches!(self.state, AppState::Loading) || matches!(self.state, AppState::Initializing) {
                 ui.centered_and_justified(|ui| {
                     ui.label("Загрузка...");
@@ -360,6 +436,7 @@ impl eframe::App for RcloneUI {
                 return;
             }
             
+            // Состояние ошибки
             if let AppState::Error(msg) = &self.state {
                 ui.centered_and_justified(|ui| {
                     ui.colored_label(Color32::RED, format!("Ошибка: {}", msg));
@@ -367,6 +444,7 @@ impl eframe::App for RcloneUI {
                 return;
             }
             
+            // Результаты поиска или список файлов
             if !self.search_results.is_empty() {
                 let search_results = self.search_results.clone();
                 let current_path = self.current_path.clone();
@@ -396,6 +474,7 @@ impl eframe::App for RcloneUI {
                     }
                 });
             } else if !self.current_path.is_empty() {
+                // Файловый менеджер
                 let current_files = self.current_files.clone();
                 let current_path = self.current_path.clone();
                 ScrollArea::vertical().show(ui, |ui| {
@@ -448,6 +527,7 @@ impl eframe::App for RcloneUI {
                     }
                 });
             } else {
+                // Приветственный экран
                 ui.centered_and_justified(|ui| {
                     ui.vertical(|ui| {
                         ui.add_space(50.0);
@@ -466,6 +546,7 @@ impl eframe::App for RcloneUI {
             
             ui.separator();
             
+            // Кнопки действий
             if !self.selected_paths.is_empty() {
                 ui.horizontal(|ui| {
                     ui.label(format!("Выбрано: {} элемент(ов)", self.selected_paths.len()));
@@ -489,6 +570,7 @@ impl eframe::App for RcloneUI {
                 });
             }
             
+            // Прогресс передачи
             if let Some(progress) = &self.transfer_progress {
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -504,6 +586,7 @@ impl eframe::App for RcloneUI {
             }
         });
         
+        // Диалоги
         if self.show_transfer_dialog {
             let transfer_source = self.transfer_source.clone();
             let transfer_dest = self.transfer_dest.clone();
@@ -600,6 +683,7 @@ impl eframe::App for RcloneUI {
                 });
         }
         
+        // Диалог ошибок
         if let Some(error) = &self.error_message {
             let error_clone = error.clone();
             Window::new("Ошибка")
@@ -620,6 +704,7 @@ impl eframe::App for RcloneUI {
                 });
         }
         
+        // Запрос перерисовки для анимаций
         ctx.request_repaint();
     }
 }
