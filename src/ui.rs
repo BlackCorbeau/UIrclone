@@ -1,8 +1,9 @@
 //! Графический интерфейс для операций rclone.
 
 use eframe::egui;
-use egui::{CentralPanel, ScrollArea, Window, Align2, Color32};
+use egui::{CentralPanel, ScrollArea, Window, Align2, Color32, Spinner};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::runtime::Runtime;
 use crate::rclone_install::RcloneApp;
 use crate::operations::{self, FileInfo, Remote, CopyOptions, MoveOptions, DeleteOptions, FindOptions};
@@ -226,7 +227,6 @@ impl RcloneUI {
                 Ok(msg) => {
                     println!("Операция успешна: {}", msg);
                     self.load_remotes();
-                    // Клонируем путь, чтобы избежать конфликта заимствований
                     let current_path = self.current_path.clone();
                     if !current_path.is_empty() {
                         self.load_files(&current_path);
@@ -385,8 +385,12 @@ impl eframe::App for RcloneUI {
                     });
                 });
                 ui.separator();
+                // Индикатор состояния с анимацией
                 if self.background_working {
-                    ui.colored_label(Color32::YELLOW, "⟳ Работа в фоне...");
+                    ui.horizontal(|ui| {
+                        ui.add(Spinner::new().size(16.0));
+                        ui.colored_label(egui::Color32::YELLOW, " Работа в фоне...");
+                    });
                 } else {
                     match &self.state {
                         AppState::Ready => { ui.colored_label(Color32::GREEN, "● Готов"); }
@@ -456,10 +460,17 @@ impl eframe::App for RcloneUI {
             });
             ui.separator();
             
+            // Анимированная загрузка в центральной панели
             if self.background_working {
                 ui.centered_and_justified(|ui| {
-                    ui.colored_label(Color32::YELLOW, "⟳ Выполняется операция... Пожалуйста, подождите.");
+                    ui.add(Spinner::new().size(64.0));
+                    ui.add_space(10.0);
+                    ui.colored_label(
+                        egui::Color32::LIGHT_BLUE,
+                        "⟳ Выполняется операция... Пожалуйста, подождите."
+                    );
                 });
+                ctx.request_repaint_after(Duration::from_millis(16));
                 return;
             }
             
