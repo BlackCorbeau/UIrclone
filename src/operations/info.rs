@@ -24,3 +24,20 @@ pub fn stats(app: &RcloneApp) -> Result<Value, String> {
         serde_json::from_str(&output).map_err(|e| format!("Ошибка парсинга статистики: {}", e))?;
     Ok(stats)
 }
+
+/// Получить список поддерживаемых бэкендов (типов хранилищ)
+pub fn backends(app: &RcloneApp) -> Result<Vec<String>, String> {
+    let output = app.run_command(&["help", "backends"])?;
+    let mut backends = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // Формат строки: "  drive  Google Drive"
+        if let Some(first_word) = line.split_whitespace().next() {
+            backends.push(first_word.to_string());
+        }
+    }
+    Ok(backends)
+}
