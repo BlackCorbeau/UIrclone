@@ -256,7 +256,6 @@ impl RcloneUI {
 
     fn poll_background_operation(&mut self) {
         if self.active_task_count == 0 {
-            // Если нет активных задач, но состояние всё ещё "Занят" — сбрасываем
             if matches!(self.state, AppState::Copying | AppState::Moving | AppState::Deleting | AppState::Loading) {
                 self.state = AppState::Ready;
             }
@@ -272,14 +271,15 @@ impl RcloneUI {
                 println!("✅ Операция {} успешна: {}", op_id, msg);
                 self.active_task_count = self.active_task_count.saturating_sub(1);
                 self.active_operations.retain(|op| op.id != op_id);
-                self.error_message = Some(msg);
+                // Убираем уведомление об успехе — не показываем диалог
+                // self.error_message = Some(msg);
                 self.state = AppState::Ready;
             }
             OperationResult::Failure(op_id, e) => {
                 eprintln!("❌ Операция {} ошибка: {}", op_id, e);
                 self.active_task_count = self.active_task_count.saturating_sub(1);
                 self.active_operations.retain(|op| op.id != op_id);
-                self.error_message = Some(e);
+                self.error_message = Some(e); // ошибки показываем
                 self.state = AppState::Ready;
             }
             OperationResult::FileList(files) => {
