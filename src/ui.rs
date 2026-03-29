@@ -184,6 +184,8 @@ impl RcloneUI {
                     self.current_path = path.to_string();
                     self.search_results.clear();
                     self.search_pattern.clear();
+                    // Очищаем выбранные файлы при смене директории
+                    self.selected_paths.clear();
                 }
                 Err(e) => self.error_message = Some(e),
             }
@@ -511,11 +513,20 @@ impl eframe::App for RcloneUI {
                     }
                     ui.heading("Файлы и папки");
                     for file in &current_files {
-                        let selected = self.selected_paths.contains(&file.path);
+                        // Формируем полный путь rclone (с именем удалённого хранилища)
+                        let full_path = if current_path.ends_with(':') {
+                            format!("{}{}", current_path, file.name)
+                        } else {
+                            format!("{}/{}", current_path, file.name)
+                        };
+                        let selected = self.selected_paths.contains(&full_path);
                         ui.horizontal(|ui| {
                             if ui.selectable_label(selected, file.icon()).clicked() {
-                                if selected { self.selected_paths.retain(|p| p != &file.path); }
-                                else { self.selected_paths.push(file.path.clone()); }
+                                if selected {
+                                    self.selected_paths.retain(|p| p != &full_path);
+                                } else {
+                                    self.selected_paths.push(full_path.clone());
+                                }
                             }
                             if file.is_dir {
                                 if ui.link(&file.name).clicked() {
