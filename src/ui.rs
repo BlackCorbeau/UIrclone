@@ -256,37 +256,46 @@ impl RcloneUI {
 
     fn poll_background_operation(&mut self) {
         if self.active_task_count == 0 {
+            // Если нет активных задач, но состояние всё ещё "Занят" — сбрасываем
+            if matches!(self.state, AppState::Copying | AppState::Moving | AppState::Deleting | AppState::Loading) {
+                self.state = AppState::Ready;
+            }
             return;
         }
         let result = {
             let mut holder = self.operation_result.lock().unwrap();
             std::mem::replace(&mut *holder, OperationResult::None)
         };
-
+    
         match result {
             OperationResult::Success(op_id, msg) => {
                 println!("✅ Операция {} успешна: {}", op_id, msg);
                 self.active_task_count = self.active_task_count.saturating_sub(1);
                 self.active_operations.retain(|op| op.id != op_id);
                 self.error_message = Some(msg);
+                self.state = AppState::Ready;
             }
             OperationResult::Failure(op_id, e) => {
                 eprintln!("❌ Операция {} ошибка: {}", op_id, e);
                 self.active_task_count = self.active_task_count.saturating_sub(1);
                 self.active_operations.retain(|op| op.id != op_id);
                 self.error_message = Some(e);
+                self.state = AppState::Ready;
             }
             OperationResult::FileList(files) => {
                 self.current_files = files;
                 self.active_task_count = self.active_task_count.saturating_sub(1);
+                self.state = AppState::Ready;
             }
             OperationResult::RemoteList(remotes) => {
                 self.remote_list = remotes;
                 self.active_task_count = self.active_task_count.saturating_sub(1);
+                self.state = AppState::Ready;
             }
             OperationResult::SearchResults(results) => {
                 self.search_results = results;
                 self.active_task_count = self.active_task_count.saturating_sub(1);
+                self.state = AppState::Ready;
             }
             OperationResult::ProgressUpdate(op_id, progress, status) => {
                 if let Some(op) = self.active_operations.iter_mut().find(|op| op.id == op_id) {
