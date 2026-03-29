@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
+pub mod local_fs;
 /// === Модуль для работы с удаленными хранилищами ===
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
