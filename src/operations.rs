@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 /// === Модуль для работы с удаленными хранилищами ===
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Remote {
     pub name: String,
     pub r#type: String,
@@ -13,7 +14,7 @@ pub mod remotes;
 
 /// === Модуль для работы с файлами и директориями ===
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
     pub name: String,
     pub path: String,

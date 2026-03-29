@@ -15,6 +15,7 @@ dependencies = [
  "mockito",
  "reqwest",
  "rfd",
+ "serde",
  "serde_json",
  "serial_test",
  "tar",
