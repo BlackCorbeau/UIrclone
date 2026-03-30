@@ -1,11 +1,14 @@
-
-use std::fs;
-use std::path::{Path, PathBuf};
 use super::*;
+use std::fs;
+use std::path::PathBuf;
 
 pub fn list_directory(path: &str) -> Result<Vec<FileInfo>, String> {
     let p = if path.is_empty() {
-        if cfg!(windows) { PathBuf::from("C:\\") } else { PathBuf::from("/") }
+        if cfg!(windows) {
+            PathBuf::from("C:\\")
+        } else {
+            PathBuf::from("/")
+        }
     } else {
         PathBuf::from(path)
     };
