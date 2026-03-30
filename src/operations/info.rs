@@ -1,4 +1,3 @@
-use super::*;
 use crate::rclone_install::RcloneApp;
 use serde_json::Value;
 use std::collections::HashMap;

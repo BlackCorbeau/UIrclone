@@ -35,6 +35,8 @@ pkgs.mkShell {
     pkgs.xorg.libX11
     pkgs.mesa
     pkgs.libglvnd
+    pkgs.gtk3
+    pkgs.glib
   ];
 
   # (Необязательно) принудительно использовать X11 backend

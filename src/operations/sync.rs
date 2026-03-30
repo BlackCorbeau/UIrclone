@@ -1,6 +1,5 @@
 use super::*;
 use crate::rclone_install::RcloneApp;
-use serde_json::Value;
 
 /// Скопировать файлы/директории
 pub fn copy(
