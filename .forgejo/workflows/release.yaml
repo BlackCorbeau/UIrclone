@@ -36,12 +36,12 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update
+          apt-get update
           # Зависимости для egui/eframe на Linux
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev
+          apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev
           # Инструменты кросс-компиляции
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            sudo apt-get install -y gcc-mingw-w64
+            apt-get install -y gcc-mingw-w64
           fi
 
       - name: Install Rust & Target
