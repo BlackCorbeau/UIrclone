@@ -94,7 +94,7 @@ jobs:
           mkdir -p ./docs-output && cp -r target/doc/* ./docs-output/
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: rust-documentation
           path: ./docs-output/
