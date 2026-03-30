@@ -1,0 +1,83 @@
+name: Release Build
+on:
+  push:
+    branches:
+      - release
+  pull_request:
+    branches:
+      - release
+
+env:
+  CARGO_TERM_COLOR: always
+  # Название вашего приложения из Cargo.toml
+  APP_NAME: "UIrclone"
+
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            suffix: ""
+            binary_path: "target/x86_64-unknown-linux-gnu/release"
+          - target: x86_64-pc-windows-gnu
+            suffix: ".exe"
+            binary_path: "target/x86_64-pc-windows-gnu/release"
+          - target: x86_64-apple-darwin
+            suffix: ""
+            binary_path: "target/x86_64-apple-darwin/release"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          # Зависимости для egui/eframe на Linux
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev
+          # Инструменты кросс-компиляции
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            sudo apt-get install -y gcc-mingw-w64
+          fi
+
+      - name: Install Rust & Target
+        run: |
+          if ! command -v rustc &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+            source $HOME/.cargo/env
+          fi
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.target }}-release-
+
+      - name: Build Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p ./out
+          # Копируем бинарник
+          cp "${{ matrix.binary_path }}/${{ env.APP_NAME }}${{ matrix.suffix }}" ./out/
+          # Копируем ассеты (шрифты), так как они нужны приложению в рантайме
+          cp -r assets ./out/assets
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.APP_NAME }}-${{ matrix.target }}
+          path: ./out/
+          retention-days: 5
