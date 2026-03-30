@@ -36,12 +36,16 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          apt-get update
+          sudo apt-get update
+          # build-essential обязателен для сборки библиотеки 'ring'
+          sudo apt-get install -y build-essential 
+          
           # Зависимости для egui/eframe на Linux
-          apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev
-          # Инструменты кросс-компиляции
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev
+          
+          # Инструменты для сборки под Windows (.exe)
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            apt-get install -y gcc-mingw-w64
+            sudo apt-get install -y gcc-mingw-w64
           fi
 
       - name: Install Rust & Target
