@@ -1,6 +1,5 @@
 use super::RcloneApp;
 use serial_test::serial;
-use std::env;
 use std::fs;
 use tempfile::tempdir;
 

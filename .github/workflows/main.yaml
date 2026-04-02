@@ -1,100 +1,101 @@
-name: Rust CI
-on: [push, pull_request]
+name: Rust CI (Native Install + Cache)
+on:
+  push:
+    branches-ignore:
+      - release
+  pull_request:
+    branches-ignore:
+      - release
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  build_and_check:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install Rust
-      run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    
-    - name: Verify Rust installation
-      run: |
-        rustc --version
-        cargo --version
-    
-    - name: Build
-      run: cargo check --verbose
-      
-  build:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install Rust
-      run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    
-    - name: Verify Rust installation
-      run: |
-        rustc --version
-        cargo --version
-    
-    - name: Build
-      run: cargo build --verbose
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustc &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Cargo Check & Build
+        run: |
+          cargo check --verbose
+          cargo build --verbose
 
   test:
-    needs: [check, build]
+    needs: build_and_check
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install Rust
-      run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    
-    - name: Verify Rust installation
-      run: |
-        rustc --version
-        cargo --version
-    
-    - name: Test
-      run: cargo test --verbose
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustc &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Tests
+        run: cargo test --verbose
 
   docs:
-    needs: [check, build]
+    needs: build_and_check
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install Rust
-      run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    
-    - name: Verify Rust installation
-      run: |
-        rustc --version
-        cargo --version
-    
-    - name: Build documentation
-      run: cargo doc --no-deps --document-private-items
-    
-    - name: Create docs directory
-      run: mkdir -p ./docs-output && cp -r target/doc/* ./docs-output/
-    
-    - name: Upload documentation as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: rust-documentation
-        path: ./docs-output/
-        retention-days: 30
-        if-no-files-found: error
-    
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustc &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build docs
+        run: |
+          cargo doc --no-deps --document-private-items
+          mkdir -p ./docs-output && cp -r target/doc/* ./docs-output/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-documentation
+          path: ./docs-output/
+          retention-days: 7
