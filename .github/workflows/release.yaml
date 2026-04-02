@@ -26,9 +26,6 @@ jobs:
           - target: x86_64-pc-windows-gnu
             suffix: ".exe"
             binary_path: "target/x86_64-pc-windows-gnu/release"
-          - target: x86_64-apple-darwin
-            suffix: ""
-            binary_path: "target/x86_64-apple-darwin/release"
 
     steps:
       - name: Checkout code
