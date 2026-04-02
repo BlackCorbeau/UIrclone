@@ -37,19 +37,19 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          # build-essential обязателен для сборки библиотеки 'ring'
-          apt-get install -y build-essential 
+          # Базовые инструменты сборки (исправляет ошибку ring на Linux/Windows)
+          apt-get install -y build-essential llvm-dev libclang-dev clang
           
-          # Зависимости для egui/eframe на Linux
+          # Зависимости для графики egui
           apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libgbm-dev
           
-          # Инструменты для сборки под Windows (.exe)
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             apt-get install -y gcc-mingw-w64
           fi
 
       - name: Install Rust & Target
         run: |
+          # Используем вашу логику установки
           if ! command -v rustc &> /dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -69,7 +69,13 @@ jobs:
             ${{ matrix.target }}-release-
 
       - name: Build Binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          # Для 'ring' при кросс-компиляции часто помогает использование clang вместо gcc
+          if [[ "${{ matrix.target }}" == *"apple"* ]]; then
+            export AR_x86_64_apple_darwin=x86_64-apple-darwin-ar
+            export CC_x86_64_apple_darwin=x86_64-apple-darwin-clang
+          fi
+          cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare Artifact
         run: |
