@@ -76,7 +76,7 @@ jobs:
           cp -r assets ./out/assets
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-${{ matrix.target }}
           path: ./out/
