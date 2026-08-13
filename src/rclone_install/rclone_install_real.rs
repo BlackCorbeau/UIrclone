@@ -249,6 +249,65 @@ impl RcloneApp {
         }
     }
 
+    /// Запуск команды с передачей строк stderr в колбэк (например, для показа
+    /// ссылки авторизации rclone во время OAuth).
+    pub fn run_command_with_stderr_feed(
+        &self,
+        args: &[&str],
+        mut on_stderr: impl FnMut(&str),
+    ) -> Result<String, String> {
+        use std::io::{BufRead, Read};
+        use std::process::{Command, Stdio};
+
+        log::debug!("Выполнение команды rclone (с потоком stderr): {} {:?}", self.rclone_path.display(), args);
+
+        let mut child = Command::new(&self.rclone_path)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                log::error!("Ошибка запуска rclone: {}", e);
+                format!("Ошибка запуска: {}", e)
+            })?;
+
+        let stderr = child.stderr.take().expect("stderr должен быть доступен");
+        let mut stderr_text = String::new();
+        {
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        on_stderr(l.trim());
+                        stderr_text.push_str(&l);
+                        stderr_text.push('\n');
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+
+        let status = child.wait().map_err(|e| format!("Ошибка ожидания rclone: {}", e))?;
+
+        let mut stdout = String::new();
+        if let Some(mut out) = child.stdout.take() {
+            let _ = out.read_to_string(&mut stdout);
+        }
+
+        if status.success() {
+            Ok(stdout)
+        } else {
+            let err = if stderr_text.trim().is_empty() {
+                stdout
+            } else {
+                stderr_text
+            };
+            log::error!("Ошибка выполнения команды: {}", err);
+            Err(err)
+        }
+    }
+
     pub fn version(&self) -> Result<String, String> {
         log::debug!("Получение версии rclone");
         self.run_command(&["version"])
