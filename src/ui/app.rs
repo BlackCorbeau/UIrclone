@@ -7,6 +7,14 @@ use egui::{
 use std::path::Path;
 use std::time::Duration;
 
+/// Действия контекстного меню хранилища
+enum RemoteMenuAction {
+    Open,
+    Check,
+    About,
+    Delete,
+}
+
 impl eframe::App for RcloneUI {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_rclone_init();
@@ -42,15 +50,20 @@ impl eframe::App for RcloneUI {
                 ui.separator();
                 ScrollArea::vertical().show(ui, |ui| {
                     for remote in self.remote_list.clone() {
-                        if ui
-                            .selectable_label(
-                                self.current_path.starts_with(&remote.name),
-                                format!("📡 {}", remote.name),
-                            )
-                            .clicked()
-                        {
-                            log::debug!("Выбрано удаленное хранилище: {}", remote.name);
+                        let selected = self.current_path.starts_with(&remote.name);
+                        let response =
+                            ui.selectable_label(selected, format!("📡 {}", remote.name));
+                        if response.clicked() {
+                            log::debug!("Открытие remote: {}", remote.name);
                             self.navigate_to(format!("{}:", remote.name));
+                        }
+                        if response.secondary_clicked() {
+                            log::debug!("Контекстное меню remote: {}", remote.name);
+                            let pos = ctx
+                                .input(|i| i.pointer.interact_pos())
+                                .unwrap_or_default();
+                            self.context_menu = Some((remote.name.clone(), pos));
+                            self.context_menu_requested = true;
                         }
                     }
                 });
@@ -477,6 +490,130 @@ impl eframe::App for RcloneUI {
             if close {
                 log::debug!("Ошибка закрыта: {}", msg);
                 self.error_message = None;
+            }
+        }
+
+        // Подтверждение удаления хранилища
+        if let Some(remote_name) = self.remote_to_delete.clone() {
+            let mut close = false;
+            let mut confirm = false;
+            Window::new("Удаление хранилища")
+                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                .collapsible(false)
+                .resizable(false)
+                .fixed_size([430.0, 170.0])
+                .show(ctx, |ui| {
+                    ui.label(format!("Удалить хранилище «{}»?", remote_name));
+                    ui.add(
+                        egui::Label::new(
+                            "Файлы в облаке не удаляются — удаляется только запись из конфигурации rclone.",
+                        )
+                        .wrap(true),
+                    );
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("🗑️ Удалить").clicked() {
+                            confirm = true;
+                        }
+                        if ui.button("Отмена").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            if close {
+                self.remote_to_delete = None;
+            }
+            if confirm {
+                self.remote_to_delete = None;
+                self.delete_remote(remote_name);
+            }
+        }
+
+        // Окно с результатом проверки или информацией о хранилище
+        if let Some(info) = &self.remote_info {
+            let mut close = false;
+            Window::new(&info.title)
+                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                .collapsible(false)
+                .resizable(false)
+                .fixed_size([430.0, 260.0])
+                .show(ctx, |ui| {
+                    let color = if info.success {
+                        Color32::LIGHT_GREEN
+                    } else {
+                        Color32::KHAKI
+                    };
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(&info.content).color(color))
+                            .wrap(true),
+                    );
+                    ui.separator();
+                    if ui.button("ОК").clicked() {
+                        close = true;
+                    }
+                });
+            if close {
+                self.remote_info = None;
+            }
+        }
+
+        // Контекстное меню хранилища (правая кнопка мыши)
+        if let Some((menu_name, menu_pos)) = self.context_menu.clone() {
+            let remote_type = self
+                .remote_list
+                .iter()
+                .find(|r| r.name == menu_name)
+                .map(|r| r.r#type.clone())
+                .unwrap_or_default();
+            let mut action: Option<RemoteMenuAction> = None;
+            Window::new("remote_menu")
+                .title_bar(false)
+                .resizable(false)
+                .collapsible(false)
+                .fixed_pos(menu_pos)
+                .show(ctx, |ui| {
+                    ui.weak(format!("Тип: {}", remote_type));
+                    ui.separator();
+                    if ui.button("📂 Открыть").clicked() {
+                        action = Some(RemoteMenuAction::Open);
+                    }
+                    if ui.button("🔍 Проверить доступность").clicked() {
+                        action = Some(RemoteMenuAction::Check);
+                    }
+                    if ui.button("📊 Использование").clicked() {
+                        action = Some(RemoteMenuAction::About);
+                    }
+                    ui.separator();
+                    if ui.button("🗑️ Удалить").clicked() {
+                        action = Some(RemoteMenuAction::Delete);
+                    }
+                });
+            if let Some(action) = action {
+                self.context_menu = None;
+                match action {
+                    RemoteMenuAction::Open => {
+                        log::debug!("Открытие remote из меню: {}", menu_name);
+                        self.navigate_to(format!("{}:", menu_name));
+                    }
+                    RemoteMenuAction::Check => {
+                        log::debug!("Проверка remote из меню: {}", menu_name);
+                        self.check_remote(menu_name.clone());
+                    }
+                    RemoteMenuAction::About => {
+                        log::debug!("Использование remote из меню: {}", menu_name);
+                        self.about_remote(menu_name.clone());
+                    }
+                    RemoteMenuAction::Delete => {
+                        log::debug!("Запрос удаления remote из меню: {}", menu_name);
+                        self.remote_to_delete = Some(menu_name.clone());
+                    }
+                }
+            } else {
+                let just_opened = std::mem::take(&mut self.context_menu_requested);
+                if !just_opened && ctx.input(|i| i.pointer.any_click()) {
+                    log::debug!("Контекстное меню закрыто");
+                    self.context_menu = None;
+                }
             }
         }
 
