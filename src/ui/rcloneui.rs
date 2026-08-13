@@ -1,4 +1,5 @@
 use super::*;
+use crate::operations::remotes::ConfigStep;
 use crate::operations::{self, CopyOptions, DeleteOptions, MoveOptions};
 use crate::rclone_install::RcloneApp;
 use eframe::egui;
@@ -88,6 +89,13 @@ impl RcloneUI {
             local_browser_files: Vec::new(),
             is_move_mode: false,
             settings: AppSettings::default(),
+            show_add_remote_dialog: false,
+            new_remote_name: String::new(),
+            new_remote_type: "drive".to_string(),
+            add_remote_step: AddRemoteStep::Form,
+            add_remote_state: None,
+            add_remote_answer: String::new(),
+            add_remote_status: String::new(),
             active_task_count: 0,
             operation_tx: op_tx,
             operation_rx: op_rx,
@@ -173,8 +181,109 @@ impl RcloneUI {
         }
     }
 
-    pub fn load_remotes(&mut self) {
+    /// Фоновый цикл создания remote: rclone задает вопросы (--non-interactive),
+    /// на вопрос config_is_local автоматически отвечаем "true" — открывается
+    /// браузер для авторизации; остальные вопросы передаются в UI.
+    fn run_add_remote_loop(
+        rclone: Arc<RcloneApp>,
+        name: String,
+        rtype: String,
+        initial_state: Option<String>,
+        initial_answer: Option<String>,
+        op_id: u32,
+        tx: Sender<OperationResult>,
+    ) {
+        std::thread::spawn(move || {
+            let mut state = initial_state;
+            let mut answer = initial_answer;
+            loop {
+                let feed_tx = tx.clone();
+                let step = operations::remotes::config_create_step(
+                    &rclone,
+                    &name,
+                    &rtype,
+                    state.as_deref(),
+                    answer.as_deref(),
+                    &mut |line: &str| {
+                        if !line.is_empty() {
+                            let _ = feed_tx.send(OperationResult::ProgressUpdate(
+                                op_id,
+                                0.0,
+                                line.to_string(),
+                            ));
+                        }
+                    },
+                );
+                match step {
+                    Ok(ConfigStep::Done) => {
+                        log::info!("Remote {} успешно создан", name);
+                        let _ = tx.send(match operations::remotes::list(&rclone) {
+                            Ok(list) => OperationResult::RemoteAdded(op_id, list),
+                            Err(e) => OperationResult::Failure(
+                                op_id,
+                                format!("Облако создано, но список обновить не удалось: {}", e),
+                            ),
+                        });
+                        return;
+                    }
+                    Ok(ConfigStep::Question { state: s, question: q }) => {
+                        if q.name == "config_is_local" {
+                            log::info!("Открытие браузера для авторизации {}", rtype);
+                            state = Some(s);
+                            answer = Some("true".to_string());
+                            let _ = tx.send(OperationResult::ProgressUpdate(
+                                op_id,
+                                0.0,
+                                "Открыт браузер для авторизации. Ожидание входа...".into(),
+                            ));
+                            continue;
+                        }
+                        log::debug!("rclone задал вопрос: {}", q.name);
+                        let _ = tx.send(OperationResult::ConfigQuestion(op_id, s, q));
+                        return;
+                    }
+                    Err(e) => {
+                        log::error!("Ошибка создания remote {}: {}", name, e);
+                        let _ = tx.send(OperationResult::Failure(op_id, e));
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn start_add_remote(&mut self) {
+        let name = self.new_remote_name.trim().to_string();
+        let rtype = self.new_remote_type.trim().to_string();
+        if name.is_empty() || rtype.is_empty() {
+            log::warn!("Не удалось создать remote: пустое имя или тип");
+            return;
+        }
         if let Some(rclone) = self.rclone.clone() {
+            log::info!("Создание нового remote: {} типа {}", name, rtype);
+            self.active_task_count += 1;
+            self.add_remote_step = AddRemoteStep::Busy;
+            self.add_remote_status = "Создание облака...".into();
+            let op_id = self.add_operation(format!("Создание облака {}", name));
+            Self::run_add_remote_loop(rclone, name, rtype, None, None, op_id, self.operation_tx.clone());
+        }
+    }
+
+    pub fn answer_add_remote(&mut self) {
+        if let (Some(rclone), Some(state)) = (self.rclone.clone(), self.add_remote_state.clone()) {
+            let answer = self.add_remote_answer.clone();
+            let name = self.new_remote_name.clone();
+            let rtype = self.new_remote_type.clone();
+            log::info!("Ответ на вопрос rclone: {}", answer);
+            self.active_task_count += 1;
+            self.add_remote_step = AddRemoteStep::Busy;
+            self.add_remote_status = "Отправка ответа...".into();
+            let op_id = self.add_operation(format!("Создание облака {}", name));
+            Self::run_add_remote_loop(rclone, name, rtype, Some(state), Some(answer), op_id, self.operation_tx.clone());
+        }
+    }
+
+    pub fn load_remotes(&mut self) {        if let Some(rclone) = self.rclone.clone() {
             log::info!("Загрузка списка удаленных хранилищ");
             self.active_task_count += 1;
             let tx = self.operation_tx.clone();
@@ -229,6 +338,9 @@ impl RcloneUI {
                     log::error!("Операция {} завершена с ошибкой: {}", op_id, e);
                     self.active_task_count = self.active_task_count.saturating_sub(1);
                     self.active_operations.retain(|op| op.id != op_id);
+                    if matches!(self.add_remote_step, AddRemoteStep::Busy) {
+                        self.add_remote_step = AddRemoteStep::Form;
+                    }
                     self.error_message = Some(e);
                 }
                 OperationResult::FileList(files) => {
@@ -243,11 +355,34 @@ impl RcloneUI {
                     self.remote_list = remotes;
                     self.active_task_count = self.active_task_count.saturating_sub(1);
                 }
+                OperationResult::RemoteAdded(op_id, remotes) => {
+                    let count = remotes.len();
+                    log::info!("Облако добавлено, список обновлен: {} элементов", count);
+                    self.remote_list = remotes;
+                    self.active_task_count = self.active_task_count.saturating_sub(1);
+                    self.active_operations.retain(|op| op.id != op_id);
+                    self.show_add_remote_dialog = false;
+                    self.add_remote_step = AddRemoteStep::Form;
+                    self.add_remote_state = None;
+                    self.new_remote_name.clear();
+                    self.add_remote_answer.clear();
+                }
+                OperationResult::ConfigQuestion(op_id, state, question) => {
+                    log::debug!("Получен вопрос rclone: {}", question.name);
+                    self.active_task_count = self.active_task_count.saturating_sub(1);
+                    self.active_operations.retain(|op| op.id != op_id);
+                    self.add_remote_state = Some(state);
+                    self.add_remote_answer = question.default.clone();
+                    self.add_remote_step = AddRemoteStep::Question(question);
+                }
                 OperationResult::ProgressUpdate(op_id, progress, status) => {
                     if let Some(op) = self.active_operations.iter_mut().find(|op| op.id == op_id) {
                         op.progress = progress;
                         op.status = status.clone();
                         log::trace!("Операция {}: прогресс {:.1}%, статус: {}", op_id, progress * 100.0, status);
+                    }
+                    if matches!(&self.add_remote_step, AddRemoteStep::Busy) {
+                        self.add_remote_status = status;
                     }
                 }
             }
