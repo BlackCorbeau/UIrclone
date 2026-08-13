@@ -71,24 +71,100 @@ pub fn get_config(app: &RcloneApp, remote_name: &str) -> Result<Remote, String> 
     }
 }
 
-/// Создать новое удаленное хранилище
-pub fn create(
+/// Вопрос, который rclone задает в процессе создания remote
+#[derive(Debug, Clone)]
+pub struct ConfigQuestion {
+    pub name: String,
+    pub help: String,
+    pub default: String,
+    pub is_password: bool,
+    pub examples: Vec<(String, String)>,
+}
+
+#[derive(Debug)]
+pub enum ConfigStep {
+    /// Создание завершено
+    Done,
+    /// rclone задает вопрос, нужен ответ пользователя
+    Question {
+        state: String,
+        question: ConfigQuestion,
+    },
+}
+
+/// Один шаг интерактивного создания remote через `config create --non-interactive`.
+/// Вызывается в цикле: без state — первый вопрос, далее с state и ответом
+/// пользователя через `--continue`. `on_stderr` получает строки stderr
+/// (например, ссылку для авторизации в браузере).
+pub fn config_create_step(
     app: &RcloneApp,
     name: &str,
     r#type: &str,
-    config: &HashMap<String, String>,
-) -> Result<(), String> {
-    log::info!("Создание нового remote: {} типа {}", name, r#type);
-    let mut args = vec!["config", "create", name, r#type];
-
-    for (key, value) in config {
-        args.push(key.as_str());
-        args.push(value.as_str());
+    state: Option<&str>,
+    result: Option<&str>,
+    on_stderr: &mut dyn FnMut(&str),
+) -> Result<ConfigStep, String> {
+    log::debug!("config create шаг: remote={} тип={} state={:?}", name, r#type, state);
+    let mut args = vec!["config", "create", name, r#type, "--non-interactive"];
+    if let Some(s) = state {
+        args.extend([
+            "--continue",
+            "--state",
+            s,
+            "--result",
+            result.unwrap_or_default(),
+        ]);
     }
 
-    app.run_command(&args)?;
-    log::info!("Remote {} успешно создан", name);
-    Ok(())
+    let output = app.run_command_with_stderr_feed(&args, on_stderr)?;
+
+    let value: Value = serde_json::from_str(&output)
+        .map_err(|e| format!("Ошибка парсинга ответа rclone: {}", e))?;
+
+    if let Some(err) = value.get("Error").and_then(|v| v.as_str()) {
+        if !err.is_empty() {
+            log::error!("rclone вернул ошибку: {}", err);
+            return Err(err.to_string());
+        }
+    }
+
+    if value["Option"].is_null() {
+        return Ok(ConfigStep::Done);
+    }
+
+    let opt = &value["Option"];
+    let examples = opt
+        .get("Examples")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    let val = match e.get("Value") {
+                        Some(Value::String(s)) => s.clone(),
+                        Some(other) => other.to_string(),
+                        None => return None,
+                    };
+                    let help = e
+                        .get("Help")
+                        .and_then(|h| h.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Some((val, help))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(ConfigStep::Question {
+        state: value["State"].as_str().unwrap_or("").to_string(),
+        question: ConfigQuestion {
+            name: opt["Name"].as_str().unwrap_or("").to_string(),
+            help: opt["Help"].as_str().unwrap_or("").to_string(),
+            default: opt["DefaultStr"].as_str().unwrap_or("").to_string(),
+            is_password: opt["IsPassword"].as_bool().unwrap_or(false),
+            examples,
+        },
+    })
 }
 
 /// Обновить конфигурацию remote
