@@ -10,6 +10,19 @@ use std::sync::mpsc::channel;
 use std::time::Instant;
 use tokio::runtime::Runtime;
 
+/// Форматирование размера в человекочитаемый вид
+pub fn format_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
 impl RcloneUI {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         log::debug!("Инициализация RcloneUI");
@@ -96,6 +109,10 @@ impl RcloneUI {
             add_remote_state: None,
             add_remote_answer: String::new(),
             add_remote_status: String::new(),
+            remote_to_delete: None,
+            remote_info: None,
+            context_menu: None,
+            context_menu_requested: false,
             active_task_count: 0,
             operation_tx: op_tx,
             operation_rx: op_rx,
@@ -283,6 +300,71 @@ impl RcloneUI {
         }
     }
 
+    /// Проверить доступность хранилища
+    pub fn check_remote(&mut self, name: String) {
+        if let Some(rclone) = self.rclone.clone() {
+            log::info!("Проверка доступности remote: {}", name);
+            self.active_task_count += 1;
+            let op_id = self.add_operation(format!("Проверка {}", name));
+            let tx = self.operation_tx.clone();
+            let remote_path = format!("{}:", name);
+            std::thread::spawn(move || {
+                match operations::remotes::check(&rclone, &remote_path) {
+                    Ok(true) => {
+                        let _ = tx.send(OperationResult::RemoteCheck(op_id, name, true));
+                    }
+                    Ok(false) => {
+                        let _ = tx.send(OperationResult::RemoteCheck(op_id, name, false));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(OperationResult::Failure(op_id, e));
+                    }
+                }
+            });
+        }
+    }
+
+    /// Получить информацию об использовании хранилища
+    pub fn about_remote(&mut self, name: String) {
+        if let Some(rclone) = self.rclone.clone() {
+            log::info!("Получение информации об использовании remote: {}", name);
+            self.active_task_count += 1;
+            let op_id = self.add_operation(format!("Использование {}", name));
+            let tx = self.operation_tx.clone();
+            let remote_path = format!("{}:", name);
+            std::thread::spawn(move || {
+                match operations::files::about(&rclone, &remote_path) {
+                    Ok(info) => {
+                        let _ = tx.send(OperationResult::RemoteAbout(op_id, name, info));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(OperationResult::Failure(op_id, e));
+                    }
+                }
+            });
+        }
+    }
+
+    /// Удалить хранилище из конфигурации rclone
+    pub fn delete_remote(&mut self, name: String) {
+        if let Some(rclone) = self.rclone.clone() {
+            log::info!("Удаление remote: {}", name);
+            self.active_task_count += 1;
+            let op_id = self.add_operation(format!("Удаление {}", name));
+            let tx = self.operation_tx.clone();
+            std::thread::spawn(move || {
+                match operations::remotes::delete(&rclone, &name) {
+                    Ok(()) => {
+                        let _ = tx.send(OperationResult::RemoteDeleted(op_id, name));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(OperationResult::Failure(op_id, e));
+                    }
+                }
+            });
+        }
+    }
+
     pub fn load_remotes(&mut self) {        if let Some(rclone) = self.rclone.clone() {
             log::info!("Загрузка списка удаленных хранилищ");
             self.active_task_count += 1;
@@ -374,6 +456,56 @@ impl RcloneUI {
                     self.add_remote_state = Some(state);
                     self.add_remote_answer = question.default.clone();
                     self.add_remote_step = AddRemoteStep::Question(question);
+                }
+                OperationResult::RemoteCheck(op_id, name, ok) => {
+                    log::debug!("Проверка remote {} завершена: доступен={}", name, ok);
+                    self.active_task_count = self.active_task_count.saturating_sub(1);
+                    self.active_operations.retain(|op| op.id != op_id);
+                    self.remote_info = Some(RemoteInfoView {
+                        title: format!("Проверка {}", name),
+                        content: if ok {
+                            "Хранилище доступно".to_string()
+                        } else {
+                            "Хранилище недоступно".to_string()
+                        },
+                        success: ok,
+                    });
+                }
+                OperationResult::RemoteAbout(op_id, name, info) => {
+                    log::debug!("Информация о remote {} получена", name);
+                    self.active_task_count = self.active_task_count.saturating_sub(1);
+                    self.active_operations.retain(|op| op.id != op_id);
+                    let mut lines = Vec::new();
+                    for (key, value) in &info {
+                        match key.as_str() {
+                            "total" => lines.push(format!("Общий объем: {}", format_bytes(*value))),
+                            "used" => lines.push(format!("Использовано: {}", format_bytes(*value))),
+                            "free" => lines.push(format!("Свободно: {}", format_bytes(*value))),
+                            "trashed" => lines.push(format!("В корзине: {}", format_bytes(*value))),
+                            "objects" => lines.push(format!("Файлов: {}", value)),
+                            "versions" => lines.push(format!("Версий: {}", value)),
+                            _ => lines.push(format!("{}: {}", key, format_bytes(*value))),
+                        }
+                    }
+                    self.remote_info = Some(RemoteInfoView {
+                        title: format!("Использование {}", name),
+                        content: lines.join("\n"),
+                        success: true,
+                    });
+                }
+                OperationResult::RemoteDeleted(op_id, name) => {
+                    log::info!("Remote {} удален", name);
+                    self.active_task_count = self.active_task_count.saturating_sub(1);
+                    self.active_operations.retain(|op| op.id != op_id);
+                    self.remote_to_delete = None;
+                    if self.current_path.starts_with(&name) {
+                        self.current_path.clear();
+                        self.current_files.clear();
+                        self.selected_paths.clear();
+                        self.history_back.clear();
+                        self.history_forward.clear();
+                    }
+                    self.load_remotes();
                 }
                 OperationResult::ProgressUpdate(op_id, progress, status) => {
                     if let Some(op) = self.active_operations.iter_mut().find(|op| op.id == op_id) {
