@@ -2,6 +2,8 @@
 use crate::operations::remotes::ConfigQuestion;
 use crate::operations::{FileInfo, Remote};
 use crate::rclone_install::RcloneApp;
+use eframe::egui;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
@@ -35,7 +37,17 @@ enum OperationResult {
     RemoteList(Vec<Remote>),
     RemoteAdded(u32, Vec<Remote>),
     ConfigQuestion(u32, String, ConfigQuestion),
+    RemoteCheck(u32, String, bool),
+    RemoteAbout(u32, String, HashMap<String, u64>),
+    RemoteDeleted(u32, String),
     ProgressUpdate(u32, f32, String),
+}
+
+/// Результат проверки или информации о хранилище для окна
+pub struct RemoteInfoView {
+    pub title: String,
+    pub content: String,
+    pub success: bool,
 }
 
 /// Шаг мастера добавления облака
@@ -89,6 +101,11 @@ pub struct RcloneUI {
     add_remote_state: Option<String>,
     add_remote_answer: String,
     add_remote_status: String,
+
+    remote_to_delete: Option<String>,
+    remote_info: Option<RemoteInfoView>,
+    context_menu: Option<(String, egui::Pos2)>,
+    context_menu_requested: bool,
 
     active_task_count: u32,
     operation_tx: Sender<OperationResult>,
