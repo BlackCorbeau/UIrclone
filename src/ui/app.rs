@@ -54,6 +54,13 @@ impl eframe::App for RcloneUI {
                         }
                     }
                 });
+                ui.separator();
+                ui.add_enabled_ui(self.rclone.is_some(), |ui| {
+                    if ui.button("➕ Добавить облако").clicked() {
+                        log::debug!("Открытие диалога добавления облака");
+                        self.show_add_remote_dialog = true;
+                    }
+                });
             });
 
         SidePanel::right("right")
@@ -169,6 +176,134 @@ impl eframe::App for RcloneUI {
                 });
             }
         });
+
+        // Диалог добавления нового облака
+        if self.show_add_remote_dialog {
+            Window::new("Новое облако")
+                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                .collapsible(false)
+                .resizable(false)
+                .fixed_size([480.0, 420.0])
+                .show(ctx, |ui| {
+                    match self.add_remote_step.clone() {
+                        AddRemoteStep::Form => {
+                            ui.label("Имя:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.new_remote_name)
+                                    .hint_text("например: mydrive")
+                                    .desired_width(240.0),
+                            );
+                            ui.add_space(6.0);
+                            ui.label("Тип:");
+                            egui::ComboBox::from_id_source("remote_type")
+                                .selected_text(self.new_remote_type.as_str())
+                                .width(240.0)
+                                .show_ui(ui, |ui| {
+                                    for t in REMOTE_TYPES {
+                                        ui.selectable_value(
+                                            &mut self.new_remote_type,
+                                            t.to_string(),
+                                            *t,
+                                        );
+                                    }
+                                });
+                            ui.add_space(8.0);
+                            ui.add(
+                                egui::Label::new(
+                                    "Для облаков с авторизацией (Google Drive, Dropbox и др.) при создании откроется браузер для входа в аккаунт.",
+                                )
+                                .wrap(true),
+                            );
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                let can_create = !self.new_remote_name.trim().is_empty()
+                                    && !self.new_remote_type.trim().is_empty()
+                                    && self.active_task_count == 0;
+                                if ui
+                                    .add_enabled(
+                                        can_create,
+                                        egui::Button::new("✅ Создать"),
+                                    )
+                                    .clicked()
+                                {
+                                    log::debug!("Кнопка 'Создать' нажата");
+                                    self.start_add_remote();
+                                }
+                                if ui.button("Отмена").clicked() {
+                                    self.show_add_remote_dialog = false;
+                                }
+                            });
+                        }
+                        AddRemoteStep::Question(question) => {
+                            ui.heading(format!("❓ {}", question.name));
+                            ui.add(egui::Label::new(&question.help).wrap(true));
+                            if !question.default.is_empty() {
+                                ui.weak(format!("По умолчанию: {}", question.default));
+                            }
+                            if !question.examples.is_empty() {
+                                ui.add_space(6.0);
+                                ui.label("Варианты:");
+                                for (value, help) in &question.examples {
+                                    let selected = self.add_remote_answer == *value;
+                                    let label = if help.is_empty() {
+                                        value.clone()
+                                    } else {
+                                        format!("{} — {}", value, help)
+                                    };
+                                    if ui.selectable_label(selected, label).clicked() {
+                                        self.add_remote_answer = value.clone();
+                                    }
+                                }
+                            }
+                            ui.add_space(6.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.add_remote_answer)
+                                    .password(question.is_password)
+                                    .hint_text(if question.is_password { "секрет" } else { "ответ" })
+                                    .desired_width(320.0),
+                            );
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add_enabled(
+                                        self.active_task_count == 0,
+                                        egui::Button::new("✅ Ответить"),
+                                    )
+                                    .clicked()
+                                {
+                                    log::debug!("Ответ на вопрос rclone отправлен");
+                                    self.answer_add_remote();
+                                }
+                                if ui.button("Отмена").clicked() {
+                                    self.show_add_remote_dialog = false;
+                                }
+                            });
+                        }
+                        AddRemoteStep::Busy => {
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Spinner::new());
+                                ui.label(&self.add_remote_status);
+                            });
+                            ui.add(
+                                egui::Label::new(
+                                    "Если страница авторизации не открылась — скопируйте ссылку из статуса ниже в браузер.",
+                                )
+                                .wrap(true),
+                            );
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                if ui.button("Отмена").clicked() {
+                                    self.show_add_remote_dialog = false;
+                                }
+                            });
+                        }
+                    }
+                });
+        }
 
         // Модальное окно трансфера
         if self.show_transfer_dialog {
